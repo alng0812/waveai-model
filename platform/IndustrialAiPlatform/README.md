@@ -1,4 +1,4 @@
-# Industrial AI Platform Demo
+# Industrial Model Training Platform Demo
 
 This is a small ASP.NET Core demo platform for the algorithm layer in `ai_training`.
 
