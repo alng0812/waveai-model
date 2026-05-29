@@ -49,6 +49,34 @@ Content-Type: multipart/form-data
 ```
 
 The response contains the stored relative path. Use that path in task fields such as `data` or `predictions`.
+For known CSV task fields, the response also includes validation details:
+
+- required columns
+- missing columns
+- suggested mappings, for example `温度 -> temperature`
+- whether the file is usable for the selected task
+
+Apply CSV header mappings:
+
+```text
+POST /api/uploads/csv/map
+Content-Type: application/json
+```
+
+Example body:
+
+```json
+{
+  "path": "platform_data\\uploads\\example.csv",
+  "task": "equipment.train_fault",
+  "fieldName": "data",
+  "mappings": {
+    "temperature": "温度",
+    "vibration": "震动",
+    "fault_within_24h": "故障"
+  }
+}
+```
 
 Example body:
 

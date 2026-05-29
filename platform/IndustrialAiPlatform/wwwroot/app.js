@@ -95,6 +95,8 @@ function createCsvUploader(field, targetInput) {
     try {
       const form = new FormData();
       form.append("file", file);
+      form.append("task", selected.task);
+      form.append("fieldName", field.name);
       const response = await fetch("/api/uploads/csv", {
         method: "POST",
         body: form
@@ -105,6 +107,7 @@ function createCsvUploader(field, targetInput) {
       status.textContent = `${payload.originalName} / ${payload.rows} 行 / ${payload.columns.length} 列`;
       outputPreview.innerHTML = renderCsvTable(payload.preview.join("\n"));
       previewMeta.textContent = `已上传 ${payload.path}`;
+      renderCsvValidation(payload, field, targetInput, wrapper);
     } catch (error) {
       status.textContent = String(error.message || error);
     } finally {
@@ -115,6 +118,87 @@ function createCsvUploader(field, targetInput) {
 
   wrapper.append(button, status, fileInput);
   return wrapper;
+}
+
+function renderCsvValidation(payload, field, targetInput, wrapper) {
+  wrapper.querySelector(".mapping-panel")?.remove();
+  const validation = payload.validation;
+  if (!validation || !validation.required?.length) return;
+
+  const panel = document.createElement("div");
+  panel.className = `mapping-panel ${validation.usable ? "ok" : "warn"}`;
+
+  if (validation.usable) {
+    panel.innerHTML = `
+      <strong>字段校验通过</strong>
+      <span>${escapeHtml(validation.message)}</span>
+    `;
+    wrapper.appendChild(panel);
+    return;
+  }
+
+  const options = payload.columns.map(column => `<option value="${escapeHtml(column)}">${escapeHtml(column)}</option>`).join("");
+  panel.innerHTML = `
+    <strong>需要字段映射</strong>
+    <span>${escapeHtml(validation.message)}</span>
+    <div class="mapping-grid">
+      ${validation.missing.map(required => {
+        const suggested = validation.suggestedMappings?.[required] || "";
+        return `
+          <label>
+            <span>${escapeHtml(required)}</span>
+            <select data-required="${escapeHtml(required)}">
+              <option value="">选择 CSV 列</option>
+              ${payload.columns.map(column => `
+                <option value="${escapeHtml(column)}" ${column === suggested ? "selected" : ""}>${escapeHtml(column)}</option>
+              `).join("")}
+            </select>
+          </label>
+        `;
+      }).join("")}
+    </div>
+    <button type="button" class="mapping-apply">应用映射</button>
+  `;
+
+  const applyButton = panel.querySelector(".mapping-apply");
+  applyButton.addEventListener("click", async () => {
+    const mappings = {};
+    panel.querySelectorAll("select[data-required]").forEach(select => {
+      if (select.value) mappings[select.dataset.required] = select.value;
+    });
+    if (Object.keys(mappings).length === 0) {
+      panel.querySelector("span").textContent = "请至少选择一个 CSV 列。";
+      return;
+    }
+
+    applyButton.disabled = true;
+    applyButton.textContent = "处理中...";
+    try {
+      const response = await fetch("/api/uploads/csv/map", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: payload.path,
+          task: selected.task,
+          fieldName: field.name,
+          mappings
+        })
+      });
+      const mapped = await response.json();
+      if (!response.ok) throw new Error(mapped.error || "映射失败");
+      targetInput.value = mapped.path;
+      outputPreview.innerHTML = renderCsvTable(mapped.preview.join("\n"));
+      previewMeta.textContent = `已映射 ${mapped.path}`;
+      renderCsvValidation(mapped, field, targetInput, wrapper);
+    } catch (error) {
+      panel.querySelector("span").textContent = String(error.message || error);
+    } finally {
+      applyButton.disabled = false;
+      applyButton.textContent = "应用映射";
+    }
+  });
+
+  wrapper.appendChild(panel);
 }
 
 function collectParams() {

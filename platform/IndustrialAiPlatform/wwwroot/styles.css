@@ -25,7 +25,7 @@ body {
     var(--bg);
 }
 
-button, input {
+button, input, select {
   font: inherit;
 }
 
@@ -170,7 +170,7 @@ h2 {
   align-items: center;
 }
 
-button[type="submit"], #refreshBtn, #historyRefreshBtn, .upload-row button {
+button[type="submit"], #refreshBtn, #historyRefreshBtn, .upload-row button, .mapping-apply {
   border: 0;
   background: var(--accent);
   color: #1b1710;
@@ -180,7 +180,7 @@ button[type="submit"], #refreshBtn, #historyRefreshBtn, .upload-row button {
   font-weight: 700;
 }
 
-#refreshBtn, #historyRefreshBtn, .upload-row button {
+#refreshBtn, #historyRefreshBtn, .upload-row button, .mapping-apply {
   background: #2f3c39;
   color: var(--text);
   border: 1px solid var(--line);
@@ -199,7 +199,7 @@ label {
   font-size: 13px;
 }
 
-input {
+input, select {
   width: 100%;
   border: 1px solid var(--line);
   background: #101715;
@@ -209,7 +209,7 @@ input {
   outline: none;
 }
 
-input:focus {
+input:focus, select:focus {
   border-color: var(--accent);
 }
 
@@ -241,6 +241,50 @@ input:focus {
 
 .upload-row input[type="file"] {
   display: none;
+}
+
+.mapping-panel {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 10px;
+  border: 1px solid #33423f;
+  border-radius: 6px;
+  background: #101715;
+  padding: 12px;
+}
+
+.mapping-panel.ok {
+  border-color: rgba(50, 182, 138, 0.55);
+}
+
+.mapping-panel.warn {
+  border-color: rgba(240, 178, 74, 0.7);
+}
+
+.mapping-panel strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.mapping-panel > span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.mapping-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.mapping-grid label {
+  color: var(--muted);
+}
+
+.mapping-apply {
+  justify-self: start;
+  padding: 8px 11px;
+  font-size: 12px;
 }
 
 .metrics {

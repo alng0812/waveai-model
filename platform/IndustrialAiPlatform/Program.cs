@@ -44,6 +44,8 @@ app.MapPost("/api/uploads/csv", async (HttpRequest request) =>
 
     var form = await request.ReadFormAsync();
     var file = form.Files["file"];
+    var task = form["task"].ToString();
+    var fieldName = form["fieldName"].ToString();
     if (file is null || file.Length == 0)
     {
         return Results.BadRequest(new { error = "csv file is required" });
@@ -73,6 +75,7 @@ app.MapPost("/api/uploads/csv", async (HttpRequest request) =>
     }
 
     var profile = ReadCsvProfile(fullPath);
+    var validation = ValidateCsv(task, fieldName, profile.Columns);
     var relativePath = ToRelativePath(workspaceRoot, fullPath);
     return Results.Json(new
     {
@@ -81,7 +84,70 @@ app.MapPost("/api/uploads/csv", async (HttpRequest request) =>
         sizeBytes = file.Length,
         profile.Columns,
         profile.Rows,
-        profile.Preview
+        profile.Preview,
+        validation
+    }, jsonOptions);
+});
+
+app.MapPost("/api/uploads/csv/map", async (CsvMapRequest request) =>
+{
+    if (string.IsNullOrWhiteSpace(request.Path))
+    {
+        return Results.BadRequest(new { error = "path is required" });
+    }
+
+    var sourcePath = ResolveWorkspacePath(workspaceRoot, request.Path);
+    if (!File.Exists(sourcePath))
+    {
+        return Results.NotFound(new { error = "csv file not found" });
+    }
+
+    if (Path.GetExtension(sourcePath).ToLowerInvariant() != ".csv")
+    {
+        return Results.BadRequest(new { error = "only .csv files are supported" });
+    }
+
+    var lines = await File.ReadAllLinesAsync(sourcePath);
+    if (lines.Length == 0)
+    {
+        return Results.BadRequest(new { error = "csv file is empty" });
+    }
+
+    var headers = SplitCsvLine(lines[0]).ToArray();
+    var mappings = request.Mappings ?? new Dictionary<string, string>();
+    var missingSources = mappings.Values
+        .Where(value => !string.IsNullOrWhiteSpace(value))
+        .Where(value => !headers.Any(header => SameColumn(header, value)))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+    if (missingSources.Length > 0)
+    {
+        return Results.BadRequest(new { error = "mapped source columns not found", missingSources });
+    }
+
+    var renamedHeaders = headers.Select(header =>
+    {
+        var target = mappings.FirstOrDefault(pair => SameColumn(pair.Value, header)).Key;
+        return string.IsNullOrWhiteSpace(target) ? header : target;
+    }).ToArray();
+
+    var suffix = Guid.NewGuid().ToString("N")[..8];
+    var mappedName = $"{Path.GetFileNameWithoutExtension(sourcePath)}_mapped_{suffix}.csv";
+    var mappedPath = Path.Combine(uploadData, mappedName);
+    var mappedLines = new List<string> { ToCsvLine(renamedHeaders) };
+    mappedLines.AddRange(lines.Skip(1));
+    await File.WriteAllLinesAsync(mappedPath, mappedLines);
+
+    var profile = ReadCsvProfile(mappedPath);
+    var validation = ValidateCsv(request.Task, request.FieldName, profile.Columns);
+    var relativePath = ToRelativePath(workspaceRoot, mappedPath);
+    return Results.Json(new
+    {
+        path = relativePath,
+        profile.Columns,
+        profile.Rows,
+        profile.Preview,
+        validation
     }, jsonOptions);
 });
 
@@ -347,6 +413,77 @@ static CsvProfile ReadCsvProfile(string path)
     return new CsvProfile(columns, rows, preview);
 }
 
+static CsvValidation ValidateCsv(string? task, string? fieldName, string[] columns)
+{
+    var schema = FindCsvSchema(task, fieldName);
+    if (schema is null)
+    {
+        return new CsvValidation([], [], [], true, new Dictionary<string, string>(), "此字段没有配置固定列名规则。");
+    }
+
+    var missing = schema.Required
+        .Where(required => !columns.Any(column => SameColumn(column, required)))
+        .ToArray();
+    var suggested = missing
+        .Select(required => new { Required = required, Source = FindSuggestedColumn(required, columns) })
+        .Where(item => item.Source is not null)
+        .ToDictionary(item => item.Required, item => item.Source!, StringComparer.OrdinalIgnoreCase);
+    var usable = missing.Length == 0;
+    var message = usable
+        ? "CSV 字段完整，可以用于当前任务。"
+        : $"缺少 {missing.Length} 个字段，可先做字段映射。";
+    return new CsvValidation(schema.Required, schema.Optional, missing, usable, suggested, message);
+}
+
+static CsvSchema? FindCsvSchema(string? task, string? fieldName)
+{
+    var key = $"{task}:{fieldName}".ToLowerInvariant();
+    return key switch
+    {
+        "equipment.train_fault:data" => new CsvSchema(
+            ["temperature", "vibration", "current", "pressure", "rpm", "load", "fault_within_24h"],
+            ["timestamp", "equipment_id", "anomaly"]),
+        "equipment.predict_fault:data" => new CsvSchema(
+            ["temperature", "vibration", "current", "pressure", "rpm", "load"],
+            ["timestamp", "equipment_id"]),
+        "equipment.plot_risk:predictions" => new CsvSchema(
+            ["timestamp", "equipment_id", "fault_risk"],
+            ["predicted_fault", "anomaly_score", "predicted_anomaly"]),
+        "process.train:data" => new CsvSchema(
+            [
+                "material_moisture", "material_grade", "ambient_temp", "target_quality",
+                "set_temperature", "set_pressure", "set_flow_rate", "line_speed",
+                "quality_score", "energy_consumption", "defect_rate"
+            ],
+            []),
+        _ => null
+    };
+}
+
+static string? FindSuggestedColumn(string required, string[] columns)
+{
+    if (CsvRules.ColumnAliases.TryGetValue(required, out var aliases))
+    {
+        var match = columns.FirstOrDefault(column => aliases.Any(alias => SameColumn(column, alias)));
+        if (match is not null) return match;
+    }
+
+    var normalizedRequired = NormalizeColumn(required);
+    return columns.FirstOrDefault(column =>
+        NormalizeColumn(column).Contains(normalizedRequired, StringComparison.OrdinalIgnoreCase) ||
+        normalizedRequired.Contains(NormalizeColumn(column), StringComparison.OrdinalIgnoreCase));
+}
+
+static bool SameColumn(string? left, string? right) =>
+    NormalizeColumn(left) == NormalizeColumn(right);
+
+static string NormalizeColumn(string? value) =>
+    new((value ?? "")
+        .Trim()
+        .ToLowerInvariant()
+        .Where(ch => char.IsLetterOrDigit(ch) || ch is '_' or '-')
+        .ToArray());
+
 static IEnumerable<string> SplitCsvLine(string line)
 {
     var cells = new List<string>();
@@ -382,6 +519,15 @@ static IEnumerable<string> SplitCsvLine(string line)
     cells.Add(current.ToString());
     return cells;
 }
+
+static string ToCsvLine(IEnumerable<string> cells) =>
+    string.Join(",", cells.Select(cell =>
+    {
+        var value = cell ?? "";
+        return value.Contains(',') || value.Contains('"') || value.Contains('\n')
+            ? $"\"{value.Replace("\"", "\"\"")}\""
+            : value;
+    }));
 
 static string? TryReadTaskName(string taskFile)
 {
@@ -452,6 +598,8 @@ static string FindWorkspaceRoot(string startPath)
 
 record TaskSubmitRequest(string? TaskId, string Task, Dictionary<string, JsonElement>? Params);
 
+record CsvMapRequest(string Path, string? Task, string? FieldName, Dictionary<string, string>? Mappings);
+
 record TaskResultFile(
     string TaskId,
     string Task,
@@ -460,6 +608,17 @@ record TaskResultFile(
 );
 
 record CsvProfile(string[] Columns, long Rows, string[] Preview);
+
+record CsvSchema(string[] Required, string[] Optional);
+
+record CsvValidation(
+    string[] Required,
+    string[] Optional,
+    string[] Missing,
+    bool Usable,
+    Dictionary<string, string> SuggestedMappings,
+    string Message
+);
 
 record ModuleDefinition(string Task, string Title, string Domain, string Description, FieldDefinition[] Fields);
 
@@ -553,4 +712,33 @@ static class ModuleCatalog
                 new("rows", "数据行数", "number", "3000")
             ])
     ];
+}
+
+static class CsvRules
+{
+    public static readonly Dictionary<string, string[]> ColumnAliases = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["timestamp"] = ["time", "datetime", "date", "采集时间", "时间", "日期"],
+        ["equipment_id"] = ["device_id", "machine_id", "asset_id", "设备编号", "设备id", "设备"],
+        ["temperature"] = ["temp", "温度", "设备温度"],
+        ["vibration"] = ["vib", "振动", "震动", "振动值"],
+        ["current"] = ["amp", "amps", "电流"],
+        ["pressure"] = ["press", "压力"],
+        ["rpm"] = ["speed", "rotate_speed", "转速"],
+        ["load"] = ["负载", "载荷", "工况负载"],
+        ["fault_within_24h"] = ["fault", "label", "target", "故障", "是否故障", "24小时内故障"],
+        ["fault_risk"] = ["risk", "score", "故障风险", "风险分"],
+        ["predicted_fault"] = ["fault_prediction", "预测故障", "故障预测"],
+        ["material_moisture"] = ["moisture", "原料水分", "水分"],
+        ["material_grade"] = ["grade", "原料等级", "等级"],
+        ["ambient_temp"] = ["ambient_temperature", "环境温度"],
+        ["target_quality"] = ["target", "目标质量", "目标分"],
+        ["set_temperature"] = ["process_temperature", "工艺温度", "设定温度"],
+        ["set_pressure"] = ["process_pressure", "工艺压力", "设定压力"],
+        ["set_flow_rate"] = ["flow", "flow_rate", "流量", "设定流量"],
+        ["line_speed"] = ["speed", "线速", "产线速度"],
+        ["quality_score"] = ["quality", "质量", "质量分"],
+        ["energy_consumption"] = ["energy", "能耗", "能源消耗"],
+        ["defect_rate"] = ["defect", "缺陷率", "不良率"]
+    };
 }
