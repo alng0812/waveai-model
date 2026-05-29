@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>工业 AI 训练控制台</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <aside class="rail">
+      <div class="brand">
+        <span class="brand-mark"></span>
+        <div>
+          <strong>AI-PaaS Lab</strong>
+          <small>Industrial Runtime</small>
+        </div>
+      </div>
+      <nav id="moduleList" class="module-list"></nav>
+    </aside>
+
+    <section class="workspace">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">算法任务调度</p>
+          <h1 id="moduleTitle">工艺参数优化</h1>
+        </div>
+        <div class="status-strip">
+          <span>Python Executor</span>
+          <strong id="executorState">READY</strong>
+        </div>
+      </header>
+
+      <section class="panel-grid">
+        <form id="taskForm" class="config-panel">
+          <div class="panel-head">
+            <div>
+              <h2>任务配置</h2>
+              <p id="moduleDesc">配置参数后提交给后端执行。</p>
+            </div>
+            <button type="submit">启动任务</button>
+          </div>
+          <div id="fields" class="fields"></div>
+        </form>
+
+        <section class="result-panel">
+          <div class="panel-head compact">
+            <div>
+              <h2>执行状态</h2>
+              <p id="taskMeta">等待提交任务</p>
+            </div>
+            <button id="refreshBtn" type="button">刷新</button>
+          </div>
+          <div class="metrics">
+            <div><span>状态</span><strong id="statusValue">IDLE</strong></div>
+            <div><span>任务 ID</span><strong id="taskIdValue">-</strong></div>
+            <div><span>结果</span><strong id="resultPathValue">-</strong></div>
+          </div>
+          <pre id="resultJson" class="console">暂无结果</pre>
+        </section>
+      </section>
+
+      <section class="log-panel">
+        <div class="panel-head compact">
+          <div>
+            <h2>运行日志</h2>
+            <p>后端启动 Python 后写入 stdout/stderr。</p>
+          </div>
+        </div>
+        <pre id="logOutput" class="console tall">暂无日志</pre>
+      </section>
+
+      <section class="lower-grid">
+        <section class="history-panel">
+          <div class="panel-head compact">
+            <div>
+              <h2>任务历史</h2>
+              <p>最近 30 个平台任务。</p>
+            </div>
+            <button id="historyRefreshBtn" type="button">刷新历史</button>
+          </div>
+          <div id="historyList" class="history-list"></div>
+        </section>
+
+        <section class="preview-panel">
+          <div class="panel-head compact">
+            <div>
+              <h2>结果预览</h2>
+              <p id="previewMeta">选择任务后读取输出文件。</p>
+            </div>
+          </div>
+          <div id="outputPreview" class="preview-box">暂无输出</div>
+        </section>
+      </section>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

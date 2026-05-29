@@ -1,0 +1,13 @@
+datasets/
+outputs/
+equipment/data/
+equipment/outputs/
+process_optimization/data/
+process_optimization/outputs/
+task_runs/
+.deps/
+.deps_yolo/
+yolov*.pt
+*.cache
+__pycache__/
+*.pyc

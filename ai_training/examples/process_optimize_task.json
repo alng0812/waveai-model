@@ -1,0 +1,13 @@
+{
+  "task_id": "demo_process_optimize_001",
+  "task": "process.optimize",
+  "params": {
+    "model_dir": "ai_training/process_optimization/outputs/process_models",
+    "material_moisture": 0.18,
+    "material_grade": 2,
+    "ambient_temp": 26,
+    "target_quality": 92,
+    "output": "ai_training/process_optimization/outputs/json_task_recommendation.json",
+    "candidates": 1000
+  }
+}

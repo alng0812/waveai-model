@@ -1,0 +1,8 @@
+yolov*.pt
+platform_data/
+.dotnet_home/
+.vs/
+bin/
+obj/
+**/bin/
+**/obj/
