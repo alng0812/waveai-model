@@ -20,6 +20,7 @@ const historyList = document.querySelector("#historyList");
 const historyRefreshBtn = document.querySelector("#historyRefreshBtn");
 const outputPreview = document.querySelector("#outputPreview");
 const previewMeta = document.querySelector("#previewMeta");
+const csvFieldNames = new Set(["data", "predictions"]);
 
 async function loadModules() {
   modules = await fetch("/api/modules").then(r => r.json());
@@ -58,8 +59,62 @@ function renderForm() {
     input.value = field.defaultValue;
     if (field.type === "number") input.step = "any";
     label.appendChild(input);
+    if (isCsvField(field)) {
+      label.appendChild(createCsvUploader(field, input));
+    }
     fields.appendChild(label);
   });
+}
+
+function isCsvField(field) {
+  return field.type !== "number" && (csvFieldNames.has(field.name) || field.label.toUpperCase().includes("CSV"));
+}
+
+function createCsvUploader(field, targetInput) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "upload-row";
+
+  const fileInput = document.createElement("input");
+  fileInput.type = "file";
+  fileInput.accept = ".csv,text/csv";
+  fileInput.id = `upload_${field.name}`;
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = "上传 CSV";
+
+  const status = document.createElement("span");
+  status.textContent = "选择本地 CSV 后自动填入路径";
+
+  button.addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", async () => {
+    const file = fileInput.files?.[0];
+    if (!file) return;
+    status.textContent = "上传中...";
+    button.disabled = true;
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const response = await fetch("/api/uploads/csv", {
+        method: "POST",
+        body: form
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "上传失败");
+      targetInput.value = payload.path;
+      status.textContent = `${payload.originalName} / ${payload.rows} 行 / ${payload.columns.length} 列`;
+      outputPreview.innerHTML = renderCsvTable(payload.preview.join("\n"));
+      previewMeta.textContent = `已上传 ${payload.path}`;
+    } catch (error) {
+      status.textContent = String(error.message || error);
+    } finally {
+      button.disabled = false;
+      fileInput.value = "";
+    }
+  });
+
+  wrapper.append(button, status, fileInput);
+  return wrapper;
 }
 
 function collectParams() {

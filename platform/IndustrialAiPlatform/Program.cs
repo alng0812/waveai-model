@@ -16,10 +16,12 @@ var app = builder.Build();
 var workspaceRoot = initialWorkspaceRoot;
 var aiRoot = Path.Combine(workspaceRoot, "ai_training");
 var platformData = Path.Combine(workspaceRoot, "platform_data", "tasks");
+var uploadData = Path.Combine(workspaceRoot, "platform_data", "uploads");
 var pythonExe = Environment.GetEnvironmentVariable("AI_PLATFORM_PYTHON")
     ?? @"C:\Users\86180\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe";
 
 Directory.CreateDirectory(platformData);
+Directory.CreateDirectory(uploadData);
 
 var jsonOptions = new JsonSerializerOptions
 {
@@ -32,6 +34,56 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 
 app.MapGet("/api/modules", () => Results.Json(ModuleCatalog.All, jsonOptions));
+
+app.MapPost("/api/uploads/csv", async (HttpRequest request) =>
+{
+    if (!request.HasFormContentType)
+    {
+        return Results.BadRequest(new { error = "multipart form data is required" });
+    }
+
+    var form = await request.ReadFormAsync();
+    var file = form.Files["file"];
+    if (file is null || file.Length == 0)
+    {
+        return Results.BadRequest(new { error = "csv file is required" });
+    }
+
+    var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+    if (extension != ".csv")
+    {
+        return Results.BadRequest(new { error = "only .csv files are supported" });
+    }
+
+    const long maxUploadBytes = 50L * 1024 * 1024;
+    if (file.Length > maxUploadBytes)
+    {
+        return Results.BadRequest(new { error = "csv file is too large", maxMb = 50 });
+    }
+
+    var originalName = Path.GetFileName(file.FileName);
+    var safeName = MakeSafeFileName(Path.GetFileNameWithoutExtension(originalName));
+    var suffix = Guid.NewGuid().ToString("N")[..8];
+    var storedName = $"{DateTime.Now:yyyyMMdd_HHmmss}_{safeName}_{suffix}.csv";
+    var fullPath = Path.Combine(uploadData, storedName);
+
+    await using (var stream = File.Create(fullPath))
+    {
+        await file.CopyToAsync(stream);
+    }
+
+    var profile = ReadCsvProfile(fullPath);
+    var relativePath = ToRelativePath(workspaceRoot, fullPath);
+    return Results.Json(new
+    {
+        originalName,
+        path = relativePath,
+        sizeBytes = file.Length,
+        profile.Columns,
+        profile.Rows,
+        profile.Preview
+    }, jsonOptions);
+});
 
 app.MapPost("/api/tasks", async (TaskSubmitRequest request) =>
 {
@@ -277,6 +329,60 @@ static string ReadTail(string path, int maxChars = 6000)
     return text.Length <= maxChars ? text : text[^maxChars..];
 }
 
+static string MakeSafeFileName(string value)
+{
+    var invalid = Path.GetInvalidFileNameChars();
+    var chars = value
+        .Select(ch => invalid.Contains(ch) || char.IsWhiteSpace(ch) ? '_' : ch)
+        .ToArray();
+    var safe = new string(chars).Trim('_');
+    return string.IsNullOrWhiteSpace(safe) ? "upload" : safe[..Math.Min(safe.Length, 48)];
+}
+
+static CsvProfile ReadCsvProfile(string path)
+{
+    var preview = File.ReadLines(path).Take(6).ToArray();
+    var columns = preview.Length == 0 ? [] : SplitCsvLine(preview[0]).ToArray();
+    var rows = Math.Max(0, File.ReadLines(path).LongCount() - 1);
+    return new CsvProfile(columns, rows, preview);
+}
+
+static IEnumerable<string> SplitCsvLine(string line)
+{
+    var cells = new List<string>();
+    var current = new System.Text.StringBuilder();
+    var inQuotes = false;
+
+    for (var i = 0; i < line.Length; i++)
+    {
+        var ch = line[i];
+        if (ch == '"')
+        {
+            if (inQuotes && i + 1 < line.Length && line[i + 1] == '"')
+            {
+                current.Append('"');
+                i++;
+            }
+            else
+            {
+                inQuotes = !inQuotes;
+            }
+        }
+        else if (ch == ',' && !inQuotes)
+        {
+            cells.Add(current.ToString());
+            current.Clear();
+        }
+        else
+        {
+            current.Append(ch);
+        }
+    }
+
+    cells.Add(current.ToString());
+    return cells;
+}
+
 static string? TryReadTaskName(string taskFile)
 {
     if (!File.Exists(taskFile)) return null;
@@ -352,6 +458,8 @@ record TaskResultFile(
     string Status,
     [property: JsonPropertyName("result_path")] string? ResultPath
 );
+
+record CsvProfile(string[] Columns, long Rows, string[] Preview);
 
 record ModuleDefinition(string Task, string Title, string Domain, string Description, FieldDefinition[] Fields);
 

@@ -11,6 +11,7 @@ It provides:
 - stdout/stderr log reading
 - recent task history
 - output preview for JSON, CSV, and images
+- CSV upload for training and prediction input files
 
 ## Run
 
@@ -39,6 +40,15 @@ Submit a task:
 ```text
 POST /api/tasks
 ```
+
+Upload a CSV file:
+
+```text
+POST /api/uploads/csv
+Content-Type: multipart/form-data
+```
+
+The response contains the stored relative path. Use that path in task fields such as `data` or `predictions`.
 
 Example body:
 
